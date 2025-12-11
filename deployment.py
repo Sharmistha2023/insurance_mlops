@@ -8,7 +8,6 @@ from ray import serve
 class InsuranceModel:
     def __init__(self):
         model_path = os.environ["MODEL_PATH"]
-        new_path = model_path + "/data"
         print("🔄 Loading MLflow Keras model:", model_path)
         self.model = mlflow.keras.load_model(model_path)
         print("✅ Model loaded successfully!")
