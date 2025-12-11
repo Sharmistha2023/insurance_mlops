@@ -92,7 +92,7 @@ with mlflow.start_run(run_name="insurance") as run:
     signature = infer_signature(x_test, model.predict(x_test))
     mlflow.keras.log_model(model, artifact_path="keras_model", signature=signature)
     mlflow.log_artifact(INPUT_FILE) 
-    mlflow.log_params(f{"NUM_EPOCHS": NUM_EPOCHS,
-                       "LEARNING_RATE": LEARNING_RATE})
- 
+    mlflow.log_params({
+    "NUM_EPOCHS": NUM_EPOCHS,
+    "LEARNING_RATE": LEARNING_RATE})
 print("Training Complete !")
