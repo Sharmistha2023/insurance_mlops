@@ -15,8 +15,15 @@
       python /home/<username>/insurance_mlops/deployment.app
   ## For prediction
        python /home/<username>/insurance_mlops/prediction.py
-  ### data source is snowflake
-
+  ### Data source is snowflake
+  ## For preprocessing
+      cmd:
+        python /home/<username>/insurance_mlops/preprocessing_snowflake.py
+      pip packages:
+         snowflake-connector-python,pandas
+      env variable:
+         OUT_TABLE_NAME : <output table name> <not mandatory>
+      
   ## For training
      cmd:
         python /home/<username>/insurance_mlops/training_snowflake.py
