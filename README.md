@@ -35,4 +35,16 @@
       python /home/<username>/insurance_mlops/deployment.app
   ## For prediction
        python /home/<username>/insurance_mlops/prediction.py
+
+## For dataset versioning:
+  ## Prepprocessing :
+      cmd:
+         /home/<username>/insurance_mlops/preprocessing_snoflake.py
+      pip packages:
+         snowflake-connector-python,snowflake-snowpark-python,snowflake-ml-python,snowflake-connector-python,pandas
+   ## Training:
+      cmd:
+           /home/<username>/insurance_mlops/training_snowflake.py
+      pip packages:
+           snowflake-connector-python,snowflake-snowpark-python,snowflake-ml-python,snowflake-connector-python,pandas
      
