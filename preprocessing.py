@@ -1,19 +1,36 @@
 import os
-from sklearn.model_selection import train_test_split
-from sklearn import preprocessing as skpreprocessing
-from sklearn.preprocessing import StandardScaler
 import pandas as pd
-INPUT_DATA_PATH = os.getenv("DATASET_PATH", "")
-INPUT_FILE = INPUT_DATA_PATH + "/insurance.csv"
-print(f"INPUT_FILE: {INPUT_FILE}")
-data = pd.read_csv(INPUT_FILE)
-insurance_input = data.drop(['timestamp','unique_id'],axis=1)
+from sklearn import preprocessing as skpreprocessing
+
+# User gives only main directory path
+MAIN_DIR = os.getenv("DATASET_PATH", "")
+
+# Search for insurance.csv inside all subdirectories
+csv_path = None
+for root, dirs, files in os.walk(MAIN_DIR):
+    if "insurance.csv" in files:
+        csv_path = os.path.join(root, "insurance.csv")
+        break
+
+if csv_path is None:
+    raise FileNotFoundError("insurance.csv not found in the given main directory.")
+
+print(f"Found: {csv_path}")
+
+# Load file
+data = pd.read_csv(csv_path)
+
+# Preprocessing
+insurance_input = data.drop(['timestamp','unique_id'], axis=1)
+
 for col in ['sex', 'smoker', 'region']:
-    if (insurance_input[col].dtype == 'object'):
+    if insurance_input[col].dtype == 'object':
         le = skpreprocessing.LabelEncoder()
-        le = le.fit(insurance_input[col])
-        insurance_input[col] = le.transform(insurance_input[col])
-        print('Completed Label encoding on',col)
-output_file_name = "/pre_processing.csv"
-insurance_input.to_csv(f"{INPUT_DATA_PATH}{output_file_name}", index=False)
-print(f"preprocessing file is stored in {INPUT_DATA_PATH}{output_file_name} location ")
+        insurance_input[col] = le.fit_transform(insurance_input[col])
+        print(f"Completed Label encoding on {col}")
+
+# Save output in MAIN_DIR
+output_file_name = os.path.join(MAIN_DIR, "pre_processing.csv")
+insurance_input.to_csv(output_file_name, index=False)
+
+print(f"Preprocessing file is stored in {output_file_name}")
