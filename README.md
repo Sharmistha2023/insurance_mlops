@@ -15,7 +15,7 @@
       python /home/<username>/insurance_mlops/deployment.app
   ## For prediction
        python /home/<username>/insurance_mlops/prediction.py
-  ### Data source is snowflake
+  ### Data source is snowflake(working)
   ## For preprocessing
       cmd:
         python /home/<username>/insurance_mlops/preprocessing_snowflake.py
@@ -30,13 +30,14 @@
      pip packages:
          snowflake-connector-python,pandas
      env variable:
-         SNOWFLAKE_TABLE : <table name>
+         SNOWFLAKE_TABLE : <table name> <not mandatory>
   ## For deployment
-      python /home/<username>/insurance_mlops/deployment.app
+      python /home/<username>/insurance_mlops/deployment_snowflake.app
   ## For prediction
-       python /home/<username>/insurance_mlops/prediction.py
+       change url and serving token
+       python /home/<username>/insurance_mlops/prediction_sonwflake.py
 
-## For dataset versioning:
+## For dataset versioning(snowflake)(not working):
   ## Prepprocessing :
       cmd:
          /home/<username>/insurance_mlops/preprocessing_snoflake.py
