@@ -2,35 +2,19 @@ import pandas as pd
 from snowflake import connector
 from snowflake.connector.pandas_tools import write_pandas
 import os
-from sklearn.model_selection import train_test_split
-from sklearn import preprocessing as skpreprocessing
-from sklearn.preprocessing import StandardScaler
 import mlflow
-from mlflow.models.signature import infer_signature
+import mlflow.sklearn
 import pandas as pd
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
-import warnings
-warnings.filterwarnings("ignore")
-import requests, argparse
-requests.packages.urllib3.disable_warnings()
-parser = argparse.ArgumentParser()
-parser.add_argument('--epochs', type=int, default=10,
-                        help='The number of epochs for training')
-parser.add_argument('--learning_rate', type=float, default=0.01,
-                        help="learning rate for optimizer")
-args = parser.parse_args()
-MLFLOW_EXPERIMENT_NAME = os.getenv('PROJECT_NAME','')
-# EPOCHS, DATASET_URL could be specified as Environment parameters at the time of creating JL or Run
-# Experiment with this parameter. 
-NUM_EPOCHS = int(os.getenv("EPOCHS", args.epochs))
-LEARNING_RATE = args.learning_rate
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+import ray
+from ray.runtime_context import get_runtime_context
 ## connecting with Snowflake
 conn = connector.connect()
 cur = conn.cursor()
 print("Connected to Snowflake")
-table_name = os.getenv("SNOWFLAKE_TABLE", "")
+table_name = os.getenv("SNOWFLAKE_TABLE", "PREPROCESSED_DATA")
 
 #cur.execute("SELECT * FROM INSURANCE_TMP")
 # mentioned table name
@@ -41,52 +25,71 @@ print("Version data loaded")
 OUTPUT_MODEL_DIR = os.getcwd()+"/model"
 ## create OUTPUT_MODEL_DIR
 os.makedirs(OUTPUT_MODEL_DIR, exist_ok=True)
-# #### MLFLOW TRACKING INITIALIZATION
-if MLFLOW_EXPERIMENT_NAME:
-    exp = mlflow.get_experiment_by_name(MLFLOW_EXPERIMENT_NAME)
-    if not exp:
-        print("Creating experiment...")
-        mlflow.create_experiment(MLFLOW_EXPERIMENT_NAME)
-    mlflow.set_experiment(experiment_name=MLFLOW_EXPERIMENT_NAME)
-else:
-    mlflow.set_experiment(experiment_name='Default')
 data = df_version1
 insurance_input = data.drop(['CHARGES'],axis=1)
 insurance_target = data['CHARGES']  
-#standardize data
-x_scaled = StandardScaler().fit_transform(insurance_input)
-x_train, x_test, y_train, y_test = train_test_split(x_scaled,
-                                                    insurance_target.values,
-                                                    test_size = 0.25,
-                                                    random_state=1211)
-tf.random.set_seed(42)  #first we set random seed
-model = keras.Sequential([
-      layers.Dense(64, activation='relu'),
-      layers.Dense(64, activation='relu'),
-      layers.Dense(1)
-  ])
-model.compile(loss='mean_absolute_error',
-             optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE))
-# mlflow metric logging
-class loggingCallback(keras.callbacks.Callback):
-    def on_epoch_end(self, epoch, logs=None):
-        mlflow.log_metric("train_loss", logs["loss"], step=epoch)
-        mlflow.log_metric("val_loss", logs["val_loss"], step=epoch)
-        # output accuracy metric for katib to collect from stdout
-        print(f"loss={round(logs['loss'],2)}")
+def safe_get_job_id():
+    try:
+        if ray.is_initialized():
+            return get_runtime_context().get_job_id()
+        else:
+            return "no-ray-job"
+    except Exception:
+        return "no-ray-job"
+# # Load dataset
+MLFLOW_EXPERIMENT_NAME = os.getenv("PROJECT_NAME", "Default")
+X_train, X_test, y_train, y_test = train_test_split(
+    insurance_input, insurance_target, test_size=0.25, random_state=42
+)
+ray.init()  # Connects to cluster if on DKube; otherwise initializes local Ray
+cluster_name = os.environ.get("HOSTNAME", "raycluster").split("-")[0]
+job_id = safe_get_job_id()
+print(f"Ray cluster: {cluster_name}")
+print(f"Ray job_id : {job_id}")
 
+# -----------------------------
+# Ray remote function for training
+# -----------------------------
+@ray.remote
+def train_and_log_model(X_train, y_train, X_test, y_test, experiment_name, tags):
+    mlflow.set_experiment(experiment_name)
+    with mlflow.start_run():
+        mlflow.set_tags(tags)
 
-with mlflow.start_run(run_name="insurance") as run:
+        # Train RandomForest
+        model = RandomForestRegressor(n_estimators=300, max_depth=10, random_state=42)
+        model.fit(X_train, y_train)
+
+        # Predict on test set
+        y_pred = model.predict(X_test)
+
+        # Calculate metrics
+        mae = mean_absolute_error(y_test, y_pred)
+        mse = mean_squared_error(y_test, y_pred)
+        r2 = r2_score(y_test, y_pred)
+
+        # Log metrics
+        mlflow.log_metric("MAE", mae)
+        mlflow.log_metric("MSE", mse)
+        mlflow.log_metric("R2", r2)
+
+        # Log model
+        mlflow.sklearn.log_model(model, "model")
     
-    model.fit(x_train, y_train, epochs = NUM_EPOCHS, verbose=0,
-                validation_split=0.1, callbacks=[loggingCallback()])
-    
-    # Exporting model
-    model.save(os.path.join(OUTPUT_MODEL_DIR, 'model.keras'))
-    mlflow.log_artifact(os.path.join(OUTPUT_MODEL_DIR, 'model.keras'), artifact_path="model")    
-    signature = infer_signature(x_test, model.predict(x_test))
-    mlflow.keras.log_model(model, artifact_path="keras_model", signature=signature)
-    mlflow.log_params({
-    "NUM_EPOCHS": NUM_EPOCHS,
-    "LEARNING_RATE": LEARNING_RATE})
-print("Training Complete !")
+    return f"Model logged successfully! Metrics -> MAE: {mae:.2f}, MSE: {mse:.2f}, R2: {r2:.2f}"
+
+# -----------------------------
+# MLflow tags
+# -----------------------------
+tags = {
+    "experiment_name": MLFLOW_EXPERIMENT_NAME,
+    "job_id": job_id,
+    "ray cluster": cluster_name
+}
+
+# -----------------------------
+# Execute Ray task
+# -----------------------------
+result_ref = train_and_log_model.remote(X_train, y_train, X_test, y_test, MLFLOW_EXPERIMENT_NAME, tags)
+result = ray.get(result_ref)
+print(result)
